@@ -1,0 +1,136 @@
+/* CONTEXT LÀ NƠI TƯƠNG TÁC VỚI SERVER VÀ CẬP NHẬT STATE REDUCER DÙNG CHO CẢ ỨNG DỤNG*/
+
+// Quản lí toàn bộ trạng thái của người dùng (truyền trực tiếp mà ko phải thông qua ông cha cháu)
+// Bước này cần làm song song cả context và reducer (từ phút: 2:02:00 trong video)
+import { createContext, useReducer, useEffect } from "react";
+import { authReducer } from "../reducers/AuthReducer";
+import { apiUrl, LOCAL_STORAGE_TOKEN_NAME } from "./constants";
+import axios from "axios";
+import setAuthToken from "../utils/setAuthToken";
+
+export const AuthContext = createContext();
+
+const AuthContextProvider = ({ children }) => {
+    // {... } ở trong reducer là trạng thái ban đầu
+    const [authState, dispatch] = useReducer(authReducer, {
+        authLoading: true, // Người dùng chưa login thì ban đầu là true, sau khi load xong là false
+        isAuthenticated: false, // trạng thái xác thực của người dùng
+        user: null, // Thông tin ban đầu của người dùng chưa có nên là null
+    });
+
+    // Authenticate user: ktra người dùng đã được login chưa
+    const loadUser = async () => {
+        if (localStorage[LOCAL_STORAGE_TOKEN_NAME]) {
+            // Ktra có local storage tên như này ko?
+            // Khi có nó sẽ thêm cái header là accestoken ở trong đấy ở tất cả các phương thức post, put, get về sau
+            setAuthToken(localStorage[LOCAL_STORAGE_TOKEN_NAME]);
+        }
+        try {
+            const response = await axios.get(`${apiUrl}/auth`); //Tìm kiếm người dùng bên phía server
+            if (response.data.success) {
+                //Thành công
+                dispatch({
+                    type: "SET_AUTH",
+                    payload: {
+                        isAuthenticated: true, // ok thì trạng xác thực chuyển true
+                        user: response.data.user,
+                    },
+                });
+            }
+        } catch (error) {
+            // Nếu có token trong localstorage nhưng là token bậy thì:
+            localStorage.removeItem(LOCAL_STORAGE_TOKEN_NAME); //xóa trong localstorage
+            setAuthToken(null); //loại bỏ header ở các phương thức req về sau:
+            dispatch({
+                type: "SET_AUTH",
+                payload: {
+                    isAuthenticated: false,
+                    user: null,
+                },
+            });
+        }
+    };
+
+    useEffect(() => {
+        loadUser();
+    }, []); //Chạy lần đầu tiên khi re-render
+
+    // Login - Nhận vào cái userForm gồm username và password
+    const loginUser = async (userForm) => {
+        // Khi sử dụng async thì trong luôn dùng try catch
+        try {
+            const response = await axios.post(`${apiUrl}/auth/login`, userForm);
+
+            // Cái success: true này được tạo json khi thành công ở server
+            if (response.data.success)
+                localStorage.setItem(
+                    LOCAL_STORAGE_TOKEN_NAME,
+                    response.data.accessToken
+                ); // Lưu accessToken user vào storage
+
+            await loadUser(); // Phải đợi thay đổi trong reducer để cập nhật trạng thái isAuthenticated: rồi mới trả vể res để handleLogin bên login form tiếp tục xử lí. Nêu ko nó sẽ xử lí luôn bên handleLogin mà isAuthenticated chưa được cập nhật lại dẫn tới lỗi sai ngu khi đăng nhập thì nó lưu vào localstorage rồi nhưng vì isAuthenticated vẫn là false nên ProtecedRoute vẫn đưa về login
+
+            // Lưu xong thì trả lại data
+            return response.data;
+        } catch (error) {
+            if (error.response.data) return error.response.data;
+            // Lỗi có chủ đích có response.data định nghĩa trong server
+            else
+                return {
+                    success: false,
+                    message: error.message,
+                };
+        }
+    };
+
+    // register
+    const registerUser = async (userForm) => {
+        try {
+            const response = await axios.post(
+                `${apiUrl}/auth/register`,
+                userForm
+            );
+
+            if (response.data.success)
+                localStorage.setItem(
+                    LOCAL_STORAGE_TOKEN_NAME,
+                    response.data.accessToken
+                );
+
+            await loadUser();
+
+            return response.data;
+        } catch (error) {
+            if (error.response.data) return error.response.data;
+            else
+                return {
+                    success: false,
+                    message: error.message,
+                };
+        }
+    };
+
+    // Logout:
+    const logoutUser = () => {
+        // Delete in localstorage -> dispatch lại authsate -> navigate to /login
+        // Khi dispatch xong nó sẽ ktra lại isAuthenticated và chuyển về login luôn
+        localStorage.removeItem(LOCAL_STORAGE_TOKEN_NAME);
+        dispatch({
+            type: "SET_AUTH",
+            payload: { isAuthenticated: false, user: null },
+        });
+    };
+
+    // Context data: Những func, data cần xuất khẩu đi để dùng thông qua context
+    const authContextData = { loginUser, authState, registerUser, logoutUser }; // Xuất thằng login use này đi bằng useContext (Hiểu đơn giản lưu vào value bên dưới để truyền function này đi bất kì đâu)
+
+    // Return provider để chứa tất cả
+    return (
+        <AuthContext.Provider value={authContextData}>
+            {children}
+        </AuthContext.Provider>
+    );
+};
+
+// Xuất thằng Provider này bao ngoài App.js để có trạng thái Global
+export default AuthContextProvider;

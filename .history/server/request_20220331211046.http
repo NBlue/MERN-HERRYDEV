@@ -1,0 +1,19 @@
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+    "username": "Nam",
+    "password": "nam01052001"
+}
+
+###
+
+POST http://localhost:5000/api/posts
+Content-Type: application/json
+
+{
+    "title": "My first post",
+    "description": "Learn MERN",
+    "url": "google.com",
+    "status": "LEARNING",
+}
